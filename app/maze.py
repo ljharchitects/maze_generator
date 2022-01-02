@@ -3,47 +3,44 @@ try:
     from typing import List
 except:
     pass
-import sys
-import time
 import random
-import itertools
 
-import Rhino.Geometry as geo
-
-sys.setrecursionlimit(5000)
+try:
+    import Rhino.Geometry as geo
+except:
+    geo = None
 
 
 class Maze:
-    def __init__(self, width, depth, height):
-        # type: (int, int, int) -> None
+    def __init__(self, w, d, h):
+        self.w = max(1, w)
+        self.d = max(1, d)
+        self.h = max(1, h)
 
-        if width <= 0 or depth <= 0 or height <= 0:
-            raise Exception("Input is Must bigger than 0")
-
-        self.width = width
-        self.depth = depth
-        self.height = height
-
-        self.cells = []  # type: List[Cell]
+        self.cells = []  # type: List[List[List[Cell]]]
         self.walls = []
 
     def build(self):
-        for w in range(self.width):
-            d_list = []
-            for d in range(self.depth):
-                w_list = []
-                for h in range(self.height):
-                    cell = Cell(w, d, h)
-                    w_list.append(cell)
-                d_list.append(w_list)
-            self.cells.append(d_list)
+        # cell 생성
+        column_list = []
+        for x in range(self.w):
+            row_list = []
+            for y in range(self.d):
+                height_list = []
+                for z in range(self.h):
+                    cell = Cell(x, y, z)
+                    height_list.append(cell)
+                row_list.append(height_list)
+            column_list.append(row_list)
+        self.cells = column_list
 
-        self.compute_cell(None, self.cells[0][0][0])
+        self._init_maze()
 
-        for h in self.cells:
-            for d in h:
-                for cell in d:
-                    self._draw_wall(cell)
+        if geo:
+            for h in self.cells:
+                for d in h:
+                    for cell in d:
+                        self._draw_wall(cell)
 
     def _draw_wall(self, cell):
         # type: (Cell) -> None
@@ -63,56 +60,49 @@ class Maze:
         bottom = sorted(pt_face_list, key=lambda pt_face: pt_face[0].Z)[0][1]
 
         walls = []
-        wall_set = set(cell.wall.walls)
-        if "front" in wall_set:
+        # wall_set = set(cell.wall.walls)
+        if "front" in cell.wall.walls:
             walls.append(front)
-        if "back" in wall_set:
+        if "back" in cell.wall.walls:
             walls.append(back)
-        if "right" in wall_set:
+        if "right" in cell.wall.walls:
             walls.append(right)
-        if "left" in wall_set:
+        if "left" in cell.wall.walls:
             walls.append(left)
-        if "top" in wall_set:
+        if "top" in cell.wall.walls:
             walls.append(top)
-        if "bottom" in wall_set:
+        if "bottom" in cell.wall.walls:
             walls.append(bottom)
 
         self.walls.extend(walls)
 
-    def compute_cell(self, prev_cell, cell):
-        # type: (Cell, Cell) -> None
+    def _init_maze(self):
+        stack = []
+        stack.append(self.cells[0][0][0])
 
-        cell.prev = prev_cell
-        cell.is_visit = True
-
-        while True:
-            if not cell.direction:
-                break
-            direction = cell.direction.pop()
+        while stack:
+            current = stack[-1]  # type: Cell
+            if not current.direction:
+                stack.pop()
+                continue
+            current.is_visit = True
+            direction = current.direction.pop()
             dir_x, dir_y, dir_z, wall = direction
-            # print("Check Direction : {}".format([dir_x, dir_y, dir_z]))
-            if (
-                0 <= dir_x < self.width
-                and 0 <= dir_y < self.depth
-                and 0 <= dir_z < self.height
-            ):
+            # print("Check Direction : {}".format([dir_x, dir_y, dir_z, wall]))
+            if 0 <= dir_x < self.w and 0 <= dir_y < self.d and 0 <= dir_z < self.h:
                 next_cell = self.cells[dir_x][dir_y][dir_z]
                 if not next_cell.is_visit:
                     # print("Move to Direction  : {}".format([dir_x, dir_y, dir_z]))
-                    cell.wall.walls.remove(wall)
+                    current.wall.walls.remove(wall)
                     next_cell_wall = self._compute_next_cell_wall(wall)
-                    # print("Candidate_wall : {}".format(next_cell_wall))
                     next_cell.wall.walls.remove(next_cell_wall)
-                    self.compute_cell(cell, next_cell)
-                # else:
+                    stack.append(next_cell)
+            #     else:
             #         print("Aleady Visited")
             # else:
-            #     print("Wrong Direction")
-
-        # self.walls.extend(cell.wall.walls)
+            #     print("Wrong direction")
 
     def _compute_next_cell_wall(self, prev_wall):
-        # type: (Cell, geo.Brep) -> None
         if prev_wall == "front":
             candidate_wall = "back"
         elif prev_wall == "back":
@@ -125,6 +115,8 @@ class Maze:
             candidate_wall = "bottom"
         elif prev_wall == "bottom":
             candidate_wall = "top"
+        else:
+            raise Exception("Check please!")
 
         return candidate_wall
 
@@ -156,6 +148,13 @@ class Cell:
         ]
         random.shuffle(self.direction)
 
+    def _compute_neighbors(self):
+
+        pass
+
+    def link(self):
+        pass
+
 
 class Wall:
     def __init__(self, x, y, z):
@@ -179,3 +178,6 @@ class Wall:
         self.walls.append(self.bottom)
 
 
+if __name__ == "__main__":
+    maze = Maze(10, 10, 10)
+    maze.build()
