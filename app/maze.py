@@ -4,11 +4,7 @@ try:
 except:
     pass
 import random
-
-try:
-    import Rhino.Geometry as geo
-except:
-    geo = None
+import rhino3dm
 
 
 class Maze:
@@ -34,59 +30,86 @@ class Maze:
             column_list.append(row_list)
         self.cells = column_list
 
+        # 미로 생성
         self._init_maze()
 
-        if geo:
-            for h in self.cells:
-                for d in h:
-                    for cell in d:
-                        self._draw_wall(cell)
+        # 미로 결과물에서 라이노 벽체 모델링 생성
+        for h in self.cells:
+            for d in h:
+                for cell in d:
+                    self._draw_wall(cell)
+
+        # 겹쳐진 벽체 제거
+        self.walls = self._remove_overlap_wall(self.walls)
+
+        # 파일 저장
+        self._save(self.walls)
+
+    def _save(self, walls):
+        # type: (List[WallFace]) -> None
+        model = rhino3dm.File3dm()
+        for wall in walls:
+            model.Objects.AddBrep(wall.brep)
+        model.Write("maze2.3dm", 7)
+
+    def _remove_overlap_wall(self, walls):
+        # type: (List[WallFace]) -> List[WallFace]
+        new_walls = []  # type: List[WallFace]
+        for wall in walls:
+            if not new_walls:
+                new_walls.append(wall)
+                continue
+
+            if any(wall.cen_pt.DistanceTo(w.cen_pt) < 0.01 for w in new_walls):
+                continue
+            new_walls.append(wall)
+
+        return new_walls
 
     def _draw_wall(self, cell):
         # type: (Cell) -> None
 
-        pos_pt = geo.Point3d(cell.x, cell.y, cell.z)
-        interval = geo.Interval(0, 1)
-        plane = geo.Plane(pos_pt, geo.Vector3d.ZAxis)
-        box_faces = geo.Box(plane, interval, interval, interval).ToBrep().Faces
-        pt_face_list = [
-            [box_face.PointAt(0.5, 0.5), box_face] for box_face in box_faces
-        ]
-        front = sorted(pt_face_list, key=lambda pt_face: pt_face[0].X)[-1][1]
-        back = sorted(pt_face_list, key=lambda pt_face: pt_face[0].X)[0][1]
-        right = sorted(pt_face_list, key=lambda pt_face: pt_face[0].Y)[-1][1]
-        left = sorted(pt_face_list, key=lambda pt_face: pt_face[0].Y)[0][1]
-        top = sorted(pt_face_list, key=lambda pt_face: pt_face[0].Z)[-1][1]
-        bottom = sorted(pt_face_list, key=lambda pt_face: pt_face[0].Z)[0][1]
+        min_pt = rhino3dm.Point3d(cell.x - 0.5, cell.y - 0.5, cell.z - 0.5)
+        max_pt = rhino3dm.Point3d(cell.x + 0.5, cell.y + 0.5, cell.z + 0.5)
+        box = rhino3dm.BoundingBox(min_pt, max_pt)
+        box_faces = rhino3dm.Brep.CreateFromBox(box).Surfaces
+        wall_face_list = []  # type: List[WallFace]
+        for face in box_faces:
+            if not face:
+                break
+            wall_face = WallFace(face.PointAt(0.5, 0.5), face)
+            wall_face_list.append(wall_face)
 
-        walls = []
-        # wall_set = set(cell.wall.walls)
+        front = sorted(wall_face_list, key=lambda wall_face: wall_face.cen_pt.X)[-1]
+        back = sorted(wall_face_list, key=lambda wall_face: wall_face.cen_pt.X)[0]
+        right = sorted(wall_face_list, key=lambda wall_face: wall_face.cen_pt.Y)[-1]
+        left = sorted(wall_face_list, key=lambda wall_face: wall_face.cen_pt.Y)[0]
+        top = sorted(wall_face_list, key=lambda wall_face: wall_face.cen_pt.Z)[-1]
+        bottom = sorted(wall_face_list, key=lambda wall_face: wall_face.cen_pt.Z)[0]
+
         if "front" in cell.wall.walls:
-            walls.append(front)
+            self.walls.append(front)
         if "back" in cell.wall.walls:
-            walls.append(back)
+            self.walls.append(back)
         if "right" in cell.wall.walls:
-            walls.append(right)
+            self.walls.append(right)
         if "left" in cell.wall.walls:
-            walls.append(left)
+            self.walls.append(left)
         if "top" in cell.wall.walls:
-            walls.append(top)
+            self.walls.append(top)
         if "bottom" in cell.wall.walls:
-            walls.append(bottom)
-
-        self.walls.extend(walls)
+            self.walls.append(bottom)
 
     def _init_maze(self):
-        stack = []
-        stack.append(self.cells[0][0][0])
+        stack = [self.cells[0][0][0]]
 
         while stack:
             current = stack[-1]  # type: Cell
-            if not current.direction:
+            if not current.directions:
                 stack.pop()
                 continue
             current.is_visit = True
-            direction = current.direction.pop()
+            direction = current.directions.pop()
             dir_x, dir_y, dir_z, wall = direction
             # print("Check Direction : {}".format([dir_x, dir_y, dir_z, wall]))
             if 0 <= dir_x < self.w and 0 <= dir_y < self.d and 0 <= dir_z < self.h:
@@ -94,7 +117,7 @@ class Maze:
                 if not next_cell.is_visit:
                     # print("Move to Direction  : {}".format([dir_x, dir_y, dir_z]))
                     current.wall.walls.remove(wall)
-                    next_cell_wall = self._compute_next_cell_wall(wall)
+                    next_cell_wall = self._get_next_cell_wall(wall)
                     next_cell.wall.walls.remove(next_cell_wall)
                     stack.append(next_cell)
             #     else:
@@ -102,7 +125,7 @@ class Maze:
             # else:
             #     print("Wrong direction")
 
-    def _compute_next_cell_wall(self, prev_wall):
+    def _get_next_cell_wall(self, prev_wall):
         if prev_wall == "front":
             candidate_wall = "back"
         elif prev_wall == "back":
@@ -127,7 +150,7 @@ class Cell:
         self.y = y
         self.z = z
 
-        self.wall = Wall(self.x, self.y, self.z)
+        self.wall = Wall(x, y, z)
         self.prev = None
         self.is_visit = False
 
@@ -138,7 +161,7 @@ class Cell:
         self.top_dir = [x, y, z + 1, self.wall.top]
         self.bottom_dir = [x, y, z - 1, self.wall.bottom]
 
-        self.direction = [
+        self.directions = [
             self.front_dir,
             self.back_dir,
             self.right_dir,
@@ -146,14 +169,7 @@ class Cell:
             self.top_dir,
             self.bottom_dir,
         ]
-        random.shuffle(self.direction)
-
-    def _compute_neighbors(self):
-
-        pass
-
-    def link(self):
-        pass
+        random.shuffle(self.directions)
 
 
 class Wall:
@@ -176,6 +192,14 @@ class Wall:
         self.walls.append(self.left)
         self.walls.append(self.top)
         self.walls.append(self.bottom)
+
+
+class WallFace:
+    def __init__(self, cen_pt, face):
+        # type: (rhino3dm.Point3d, rhino3dm.Surface) -> None
+        self.cen_pt = cen_pt
+        self.face = face
+        self.brep = rhino3dm.Brep.CreateFromSurface(face)
 
 
 if __name__ == "__main__":
