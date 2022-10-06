@@ -1,10 +1,15 @@
 # -*- coding:utf-8 -*-
 try:
     from typing import List
+    import rhino3dm
 except:
     pass
 import random
-import rhino3dm
+
+try:
+    import Rhino.Geometry as geo
+except:
+    geo = None
 
 
 class Maze:
@@ -15,9 +20,10 @@ class Maze:
 
         self.cells = []  # type: List[List[List[Cell]]]
         self.walls = []
+        self.wall_breps = []
 
     def build(self):
-        # cell 생성
+        # 육면체 방에 해당하는 cell 생성
         column_list = []
         for x in range(self.w):
             row_list = []
@@ -30,20 +36,36 @@ class Maze:
             column_list.append(row_list)
         self.cells = column_list
 
-        # 미로 생성
+        # 각 방을 랜덤하게 연결하면서 벽체 삭제
         self._init_maze()
 
         # 미로 결과물에서 라이노 벽체 모델링 생성
-        for h in self.cells:
-            for d in h:
-                for cell in d:
-                    self._draw_wall(cell)
+        if geo:
+            for h in self.cells:
+                for d in h:
+                    for cell in d:
+                        self._draw_wall_with_rhinocommon(cell)
+        else:
+            for h in self.cells:
+                for d in h:
+                    for cell in d:
+                        self._draw_wall_with_rhino3dm(cell)
 
         # 겹쳐진 벽체 제거
         self.walls = self._remove_overlap_wall(self.walls)
 
         # 파일 저장
-        self._save(self.walls)
+        if geo:
+            self.wall_breps = self._export_result(self.walls)
+        else:
+            self._save(self.walls)
+
+    def _export_result(self, walls):
+        # type: (List[WallFace]) -> None
+        result = []
+        for wall in walls:
+            result.append(wall.brep)
+        return result
 
     def _save(self, walls):
         # type: (List[WallFace]) -> None
@@ -66,20 +88,8 @@ class Maze:
 
         return new_walls
 
-    def _draw_wall(self, cell):
-        # type: (Cell) -> None
-
-        min_pt = rhino3dm.Point3d(cell.x - 0.5, cell.y - 0.5, cell.z - 0.5)
-        max_pt = rhino3dm.Point3d(cell.x + 0.5, cell.y + 0.5, cell.z + 0.5)
-        box = rhino3dm.BoundingBox(min_pt, max_pt)
-        box_faces = rhino3dm.Brep.CreateFromBox(box).Surfaces
-        wall_face_list = []  # type: List[WallFace]
-        for face in box_faces:
-            if not face:
-                break
-            wall_face = WallFace(face.PointAt(0.5, 0.5), face)
-            wall_face_list.append(wall_face)
-
+    def _set_walls(self, cell, wall_face_list):
+        # type: (Cell, List[WallFace]) -> None
         front = sorted(wall_face_list, key=lambda wall_face: wall_face.cen_pt.X)[-1]
         back = sorted(wall_face_list, key=lambda wall_face: wall_face.cen_pt.X)[0]
         right = sorted(wall_face_list, key=lambda wall_face: wall_face.cen_pt.Y)[-1]
@@ -99,6 +109,37 @@ class Maze:
             self.walls.append(top)
         if "bottom" in cell.wall.walls:
             self.walls.append(bottom)
+
+    def _draw_wall_with_rhinocommon(self, cell):
+        # type: (Cell) -> None
+        pos_pt = geo.Point3d(cell.x, cell.y, cell.z)
+        interval = geo.Interval(0, 1)
+        plane = geo.Plane(pos_pt, geo.Vector3d.ZAxis)
+        box_faces = geo.Box(plane, interval, interval, interval).ToBrep().Faces
+        wall_face_list = []  # type: List[WallFace]
+        for face in box_faces:
+            if not face:
+                break
+            wall_face = WallFace(face.PointAt(0.5, 0.5), face)
+            wall_face_list.append(wall_face)
+
+        self._set_walls(cell, wall_face_list)
+
+    def _draw_wall_with_rhino3dm(self, cell):
+        # type: (Cell) -> None
+
+        min_pt = rhino3dm.Point3d(cell.x - 0.5, cell.y - 0.5, cell.z - 0.5)
+        max_pt = rhino3dm.Point3d(cell.x + 0.5, cell.y + 0.5, cell.z + 0.5)
+        box = rhino3dm.BoundingBox(min_pt, max_pt)
+        box_faces = rhino3dm.Brep.CreateFromBox(box).Surfaces
+        wall_face_list = []  # type: List[WallFace]
+        for face in box_faces:
+            if not face:
+                break
+            wall_face = WallFace(face.PointAt(0.5, 0.5), face)
+            wall_face_list.append(wall_face)
+
+        self._set_walls(cell, wall_face_list)
 
     def _init_maze(self):
         stack = [self.cells[0][0][0]]
@@ -199,9 +240,16 @@ class WallFace:
         # type: (rhino3dm.Point3d, rhino3dm.Surface) -> None
         self.cen_pt = cen_pt
         self.face = face
-        self.brep = rhino3dm.Brep.CreateFromSurface(face)
+        if geo:
+            self.brep = geo.Brep.CreateFromSurface(face)
+        else:
+            self.brep = rhino3dm.Brep.CreateFromSurface(face)
 
 
 if __name__ == "__main__":
     maze = Maze(10, 10, 10)
     maze.build()
+else:
+    maze = Maze(width, depth, height)
+    maze.build()
+    a = maze.wall_breps
