@@ -90,24 +90,24 @@ class Maze:
 
     def _set_walls(self, cell, wall_face_list):
         # type: (Cell, List[WallFace]) -> None
-        front = sorted(wall_face_list, key=lambda wall_face: wall_face.cen_pt.X)[-1]
-        back = sorted(wall_face_list, key=lambda wall_face: wall_face.cen_pt.X)[0]
-        right = sorted(wall_face_list, key=lambda wall_face: wall_face.cen_pt.Y)[-1]
-        left = sorted(wall_face_list, key=lambda wall_face: wall_face.cen_pt.Y)[0]
-        top = sorted(wall_face_list, key=lambda wall_face: wall_face.cen_pt.Z)[-1]
-        bottom = sorted(wall_face_list, key=lambda wall_face: wall_face.cen_pt.Z)[0]
+        front = max(wall_face_list, key=lambda wall_face: wall_face.cen_pt.X)
+        back = min(wall_face_list, key=lambda wall_face: wall_face.cen_pt.X)
+        right = max(wall_face_list, key=lambda wall_face: wall_face.cen_pt.Y)
+        left = min(wall_face_list, key=lambda wall_face: wall_face.cen_pt.Y)
+        top = max(wall_face_list, key=lambda wall_face: wall_face.cen_pt.Z)
+        bottom = min(wall_face_list, key=lambda wall_face: wall_face.cen_pt.Z)
 
-        if "front" in cell.wall.walls:
+        if "front" in cell.wall.sides:
             self.walls.append(front)
-        if "back" in cell.wall.walls:
+        if "back" in cell.wall.sides:
             self.walls.append(back)
-        if "right" in cell.wall.walls:
+        if "right" in cell.wall.sides:
             self.walls.append(right)
-        if "left" in cell.wall.walls:
+        if "left" in cell.wall.sides:
             self.walls.append(left)
-        if "top" in cell.wall.walls:
+        if "top" in cell.wall.sides:
             self.walls.append(top)
-        if "bottom" in cell.wall.walls:
+        if "bottom" in cell.wall.sides:
             self.walls.append(bottom)
 
     def _draw_wall_with_rhinocommon(self, cell):
@@ -142,7 +142,14 @@ class Maze:
         self._set_walls(cell, wall_face_list)
 
     def _init_maze(self):
-        stack = [self.cells[0][0][0]]
+
+        # 시작 셀
+        start_cell = self.cells[0][0][0]
+        start_cell.wall.sides.remove("left")  # 시작 벽체 제거
+        end_cell = self.cells[self.d - 1][self.w - 1][self.h - 1]
+        end_cell.wall.sides.remove("right")  # 목적지 벽체 제거
+
+        stack = [start_cell]
 
         while stack:
             current = stack[-1]  # type: Cell
@@ -157,9 +164,9 @@ class Maze:
                 next_cell = self.cells[dir_x][dir_y][dir_z]
                 if not next_cell.is_visit:
                     # print("Move to Direction  : {}".format([dir_x, dir_y, dir_z]))
-                    current.wall.walls.remove(wall)
+                    current.wall.sides.remove(wall)
                     next_cell_wall = self._get_next_cell_wall(wall)
-                    next_cell.wall.walls.remove(next_cell_wall)
+                    next_cell.wall.sides.remove(next_cell_wall)
                     stack.append(next_cell)
             #     else:
             #         print("Aleady Visited")
@@ -191,7 +198,7 @@ class Cell:
         self.y = y
         self.z = z
 
-        self.wall = Wall(x, y, z)
+        self.wall = Wall()
         self.prev = None
         self.is_visit = False
 
@@ -214,11 +221,7 @@ class Cell:
 
 
 class Wall:
-    def __init__(self, x, y, z):
-        self.x = x
-        self.y = y
-        self.z = z
-
+    def __init__(self):
         self.front = "front"
         self.back = "back"
         self.right = "right"
@@ -226,13 +229,13 @@ class Wall:
         self.top = "top"
         self.bottom = "bottom"
 
-        self.walls = []
-        self.walls.append(self.front)
-        self.walls.append(self.back)
-        self.walls.append(self.right)
-        self.walls.append(self.left)
-        self.walls.append(self.top)
-        self.walls.append(self.bottom)
+        self.sides = []
+        self.sides.append(self.front)
+        self.sides.append(self.back)
+        self.sides.append(self.right)
+        self.sides.append(self.left)
+        self.sides.append(self.top)
+        self.sides.append(self.bottom)
 
 
 class WallFace:
