@@ -1,19 +1,16 @@
 # -*- coding:utf-8 -*-
 try:
     from typing import List
-    import rhino3dm
 except:
     pass
 import random
 
-try:
-    import Rhino.Geometry as geo
-except:
-    geo = None
+import Rhino.Geometry as geo
 
 
 class Maze:
     def __init__(self, w, d, h):
+        # type: (int, int, int) -> None
         self.w = max(1, w)
         self.d = max(1, d)
         self.h = max(1, h)
@@ -40,53 +37,23 @@ class Maze:
         self._init_maze()
 
         # 미로 결과물에서 라이노 벽체 모델링 생성
-        if geo:
-            for h in self.cells:
-                for d in h:
-                    for cell in d:
-                        self._draw_wall_with_rhinocommon(cell)
-        else:
-            for h in self.cells:
-                for d in h:
-                    for cell in d:
-                        self._draw_wall_with_rhino3dm(cell)
+        for h in self.cells:
+            for d in h:
+                for cell in d:
+                    self._draw_wall(cell)
 
         # 겹쳐진 벽체 제거
-        self.walls = self._remove_overlap_wall(self.walls)
+        self.walls = list(set(self.walls))
 
         # 파일 저장
-        if geo:
-            self.wall_breps = self._export_result(self.walls)
-        else:
-            self._save(self.walls)
+        self.wall_breps = self._export_result(self.walls)
 
     def _export_result(self, walls):
-        # type: (List[WallFace]) -> None
+        # type: (List[WallFace]) -> List[geo.Brep]
         result = []
         for wall in walls:
             result.append(wall.brep)
         return result
-
-    def _save(self, walls):
-        # type: (List[WallFace]) -> None
-        model = rhino3dm.File3dm()
-        for wall in walls:
-            model.Objects.AddBrep(wall.brep)
-        model.Write("maze2.3dm", 7)
-
-    def _remove_overlap_wall(self, walls):
-        # type: (List[WallFace]) -> List[WallFace]
-        new_walls = []  # type: List[WallFace]
-        for wall in walls:
-            if not new_walls:
-                new_walls.append(wall)
-                continue
-
-            if any(wall.cen_pt.DistanceTo(w.cen_pt) < 0.01 for w in new_walls):
-                continue
-            new_walls.append(wall)
-
-        return new_walls
 
     def _set_walls(self, cell, wall_face_list):
         # type: (Cell, List[WallFace]) -> None
@@ -110,7 +77,7 @@ class Maze:
         if "bottom" in cell.wall.sides:
             self.walls.append(bottom)
 
-    def _draw_wall_with_rhinocommon(self, cell):
+    def _draw_wall(self, cell):
         # type: (Cell) -> None
         pos_pt = geo.Point3d(cell.x, cell.y, cell.z)
         interval = geo.Interval(0, 1)
@@ -125,33 +92,10 @@ class Maze:
 
         self._set_walls(cell, wall_face_list)
 
-    def _draw_wall_with_rhino3dm(self, cell):
-        # type: (Cell) -> None
-
-        min_pt = rhino3dm.Point3d(cell.x - 0.5, cell.y - 0.5, cell.z - 0.5)
-        max_pt = rhino3dm.Point3d(cell.x + 0.5, cell.y + 0.5, cell.z + 0.5)
-        box = rhino3dm.BoundingBox(min_pt, max_pt)
-        box_faces = rhino3dm.Brep.CreateFromBox(box).Surfaces
-        wall_face_list = []  # type: List[WallFace]
-        for face in box_faces:
-            if not face:
-                break
-            wall_face = WallFace(face.PointAt(0.5, 0.5), face)
-            wall_face_list.append(wall_face)
-
-        self._set_walls(cell, wall_face_list)
-
     def _init_maze(self):
-
         # 시작 셀
         start_cell = self.cells[0][0][0]
         start_cell.wall.sides.remove("left")  # 시작 벽체 제거
-        print("self.d", self.d)
-        print("self.w", self.w)
-        print("self.h", self.h)
-        print("self.cells", len(self.cells))
-        print("self.cells", len(self.cells[self.d - 1]))
-        print("self.cells", len(self.cells[self.d - 1][1]))
         end_cell = self.cells[self.w - 1][self.d - 1][self.h - 1]
         end_cell.wall.sides.remove("right")  # 목적지 벽체 제거
 
@@ -246,22 +190,19 @@ class Wall:
 
 class WallFace:
     def __init__(self, cen_pt, face):
-        # type: (rhino3dm.Point3d, rhino3dm.Surface) -> None
+        # type: (geo.Point3d, geo.BrepFace) -> None
         self.cen_pt = cen_pt
         self.face = face
-        if geo:
-            self.brep = geo.Brep.CreateFromSurface(face)
-        else:
-            self.brep = rhino3dm.Brep.CreateFromSurface(face)
+        self.brep = face.ToBrep()
+
+    def __eq__(self, other):
+        # type: (WallFace) -> bool
+        return self.cen_pt.DistanceToSquared(other.cen_pt) < 0.01
+
+    def __hash__(self):
+        return hash(self.cen_pt)
 
 
-# if __name__ == "__main__":
-#     maze = Maze(10, 10, 10)
-#     maze.build()
-# else:
-# maze = Maze(width, depth, height)
-# maze.build()
-# a = maze.wall_breps
 maze = Maze(width, depth, height)
 maze.build()
 a = maze.wall_breps
